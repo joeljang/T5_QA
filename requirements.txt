@@ -4,3 +4,4 @@ pandas==1.2.3
 numpy==1.18.5
 nlp==0.4.0
 sentencepiece==0.1.95
+wandb
