@@ -17,6 +17,7 @@ import torch
 import pytorch_lightning as pl
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.plugins import DDPPlugin
 from nlp import load_metric
 import string
 from pathlib import Path
@@ -35,8 +36,6 @@ import textwrap
 from tqdm.auto import tqdm
 from nlp import list_datasets
 from nlp import load_dataset
-
-wandb_logger = WandbLogger(project='closedbook-qa')
 
 def set_seed(seed):
     random.seed(seed)
@@ -348,12 +347,6 @@ class LoggingCallback(pl.Callback):
                         logger.info("{} = {}\n".format(key, str(metrics[key])))
                         writer.write("{} = {}\n".format(key, str(metrics[key])))
 
-#prefix_path='BioASQ/'
-prefix_path=''
-
-from transformers import pipeline
-nlp = pipeline("ner")
-
 class Pretrain(Dataset):
     def __init__(self, tokenizer, type_path, num_samples, input_length, output_length, print_text=False):
       self.dataset = self.split_into_segment(pd.read_csv(prefix_path+"recentqa_context.csv", delimiter='\t'),input_length)
@@ -534,36 +527,48 @@ def get_dataset(tokenizer, type_path, num_samples, args):
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('--input_length', default=128)
-    parser.add_argument('--output_length', default=128)
-    parser.add_argument('--num_train_epochs', default=30)
-    parser.add_argument('--output_dir', default='t5')
-    parser.add_argument('--train_batch_size', default=2)
-    parser.add_argument('--learning_rate', default=1e-3)
-    parser.add_argument('--model', default='t5-base')
-    hparam = parser.parse_args()
+    parser.add_argument('--config', default=None, type=str)
+    arg_ = parser.parse_args()
+    if arg_.config == None:
+        raise NameError("Input a config file dude!")
 
+    #Getting configurations
+    with open(arg_.config) as config_file:
+        hparam = json.load(config_file)
+    hparam = argparse.Namespace(**hparam)
+
+    #Setting gpus to use
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # see issue #152
+    os.environ["CUDA_VISIBLE_DEVICES"]=hparam.CUDA_VISIBLE_DEVICES
+
+    #Logging into WANDB
+    if hparam.wandb_log:
+        wandb_logger = WandbLogger(project=hparam.wandb_project, name=hparam.wandb_run_name)
+    else:
+        wandb_logger = None
+
+    #Setting configurations
     args_dict = dict(
-        output_dir="", # path to save the checkpoints
+        output_dir=hparam.output_dir, # path to save the checkpoints
+        dataset=hparam.dataset,
         model_name_or_path=hparam.model,
         tokenizer_name_or_path=hparam.model,
-        max_input_length=int(hparam.input_length),
-        max_output_length=int(hparam.input_length),
+        max_input_length=hparam.input_length,
+        max_output_length=hparam.input_length,
         freeze_encoder=False,
         freeze_embeds=False,
-        learning_rate=1e-5,
+        learning_rate=hparam.learning_rate,
         weight_decay=0.0,
         adam_epsilon=1e-8,
         warmup_steps=0,
-        train_batch_size=4,
-        eval_batch_size=4,
-        num_train_epochs=2,
-        #gradient_accumulation_steps=10,
-        gradient_accumulation_steps=1,
-        n_gpu=1,
-        resume_from_checkpoint=None, 
-        val_check_interval = 1.0,
-        val_percent_check= 0.1,
+        train_batch_size=hparam.train_batch_size,
+        eval_batch_size=hparam.train_batch_size,
+        num_train_epochs=hparam.num_train_epochs,
+        gradient_accumulation_steps=hparam.gradient_accumulation_steps,
+        n_gpu=hparam.ngpu,
+        num_workers=hparam.num_workers,
+        resume_from_checkpoint=hparam.resume_from_checkpoint, 
+        val_check_interval = 1.0, 
         n_val=-1,
         n_train=-1,
         n_test=-1,
@@ -573,32 +578,28 @@ if __name__ == '__main__':
         max_grad_norm=1.0, # if you enable 16-bit training then set this to a sensible value, 0.5 is a good default
         seed=101,
     )
-
-    #args_dict.update({'output_dir': 't5_trivia_qa_closedbook', 'num_train_epochs':4,
-    #                'train_batch_size': 48, 'eval_batch_size': 48, 'learning_rate': 1e-3,
-    #                'resume_from_checkpoint': 't5_trivia_qa_closedbook/checkpointepoch=53.ckpt'})
-    args_dict.update({'output_dir':'t5', 'num_train_epochs':int(hparam.num_train_epochs),
-                    'train_batch_size': int(hparam.train_batch_size), 'eval_batch_size': int(hparam.train_batch_size), 'learning_rate': float(hparam.learning_rate)})
     args = argparse.Namespace(**args_dict)
 
     ## Define Checkpoint function
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        filepath=args.output_dir, prefix="checkpoint", monitor="em_score", mode="max", save_top_k=1
+        dirpath = args.output_dir, monitor="em_score", mode="max", save_top_k=1
     )
 
     ## If resuming from checkpoint, add an arg resume_from_checkpoint
     train_params = dict(
         accumulate_grad_batches=args.gradient_accumulation_steps,
+        plugins=DDPPlugin(find_unused_parameters=False),
         gpus=args.n_gpu,
         max_epochs=args.num_train_epochs,
         precision= 16 if args.fp_16 else 32,
         amp_level=args.opt_level,
-        #resume_from_checkpoint=args.resume_from_checkpoint,
+        resume_from_checkpoint=args.resume_from_checkpoint,
         gradient_clip_val=args.max_grad_norm,
         checkpoint_callback=checkpoint_callback,
         val_check_interval=args.val_check_interval,
         logger=wandb_logger,
-        callbacks=[LoggingCallback()]
+        callbacks=[LoggingCallback()],
+        accelerator=hparam.accelerator
     )
     
     set_seed(42)

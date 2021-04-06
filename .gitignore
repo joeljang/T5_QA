@@ -1,3 +1,5 @@
 wandb
 closedbook-qa
 t5_trivia_qa_closedbook
+lightning_logs
+outputs

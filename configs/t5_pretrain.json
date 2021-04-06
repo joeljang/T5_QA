@@ -1,0 +1,22 @@
+{
+    "input_length" : 128,
+    "output_length" : 128,
+    "num_train_epochs" : 30,
+    "output_dir" : "outputs/t5_pretrain_recentQA_ssm",
+    "dataset" : "recentQA",
+    "train_batch_size" : 4,
+    "learning_rate" : 1e-3,
+    "model" : "t5-base",
+    "gradient_accumulation_steps" : 1,
+    "ngpu" : 4,
+    "num_workers" : 8,
+    "resume_from_checkpoint" : null,
+    "accelerator" : "ddp",
+    "CUDA_VISIBLE_DEVICES" : "4,5,6,7",
+    "wandb_log": true,
+    "wandb_project": "closedbook-qa",
+    "wandb_run_name" : "T5_base_pretrain_NQ_SSM",
+    "mode" : "pretrain",
+    "valid_on_recentQA" : false,
+    "check_validation" : false
+}
