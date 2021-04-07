@@ -6,7 +6,8 @@ import re
 train = pd.read_csv('triviaQA/trivia_qa.csv')
 #correct_valid = pd.read_csv('triviaQA_correctvalid.csv')
 #correct_valid = pd.read_csv('outputs/t5_small_nossm/triviaQA_correctvalid.csv')
-correct_valid = pd.read_csv('outputs/t5_small_ssm/triviaQA_correctvalid.csv')
+#correct_valid = pd.read_csv('outputs/t5_small_ssm/triviaQA_correctvalid.csv')
+correct_valid = pd.read_csv('outputs/t5_large_nossm/triviaQA_correctvalid.csv')
 
 def normalize_answer(s):
     """Lower text and remove punctuation, articles and extra whitespace."""
