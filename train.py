@@ -122,11 +122,16 @@ if __name__ == '__main__':
         model = T5FineTuner.load_from_checkpoint(checkpoint_path=args.checkpoint_path, hparams=args)
         model.eval()
         model.to('cuda')
+        
         tokenizer = T5Tokenizer.from_pretrained(args.model_name_or_path)
         dataset = Finetune(tokenizer, 'validation', None, 25, 10, args=args)
-        loader = DataLoader(dataset, batch_size=64, shuffle=True)
-        total_num=0
-        subset_correct_num=0
+        loader = DataLoader(dataset, batch_size=64, shuffle=False)
+        test_train_overlap = dataset.get_dataset('triviaQA/test_train_overlap.json')
+        total_cnt = 0
+        em_correct_num = 0
+        no_answer_overlap_cnt = 0
+        no_question_overlap_cnt = 0
+        no_overlap_cnt = 0
         valcorrect_lst=[]
         for batch in iter(loader):
             outs = model.model.generate(
@@ -144,17 +149,38 @@ if __name__ == '__main__':
             def clean_up(text):
                 text =text.replace('<pad>', '')
                 text = text.replace('</s>', '')
-                return text
+                return text     
             for i in range(len(batch['source_ids'])):
-                total_num+=1
+                no_answer_overlap = False
+                question_check = False
+                no_question_overlap = False
+                total_cnt+=1
+                print(total_cnt)
+                test_train_labels = test_train_overlap[total_cnt-1]["labels"]
+                if "no_answer_overlap" in test_train_labels:
+                    no_answer_overlap = True
+                if "question" in test_train_labels:
+                    question_check = True
+                    if "no_question_overlap" in test_train_labels:
+                        no_question_overlap = True
                 lines = textwrap.wrap("\n%s\n" % texts[i], width=100)
                 ground_truth = clean_up(targets[i])
                 predicted = clean_up(dec[i])
-                subset = model.exact_match_score(predicted, ground_truth)
-                if subset==1:
-                    subset_correct_num+=1
+                em = model.exact_match_score(predicted, ground_truth)
+                if em == 1:
+                    if no_answer_overlap:
+                        no_answer_overlap_cnt+=1
+                    if no_question_overlap:
+                        no_question_overlap_cnt+=1
+                    if no_answer_overlap and no_question_overlap:
+                        no_overlap_cnt+=1
+                    em_correct_num+=1
                     valcorrect_lst.append([clean_up(" ".join(lines)), ground_truth, predicted])
-        print(f'Validation accuracy (subset) :{subset_correct_num / total_num}')
+        print(f'Number of total validation data: {total_cnt}')
+        print(f'Number of correct predictions out of {total_cnt} : {em_correct_num}. Percentage : {em_correct_num / total_cnt}')
+        print(f'Number of correct predictions in no_answer_overlap out of 3201: {no_answer_overlap_cnt}. Percentage : {no_answer_overlap_cnt/3201}')
+        print(f'Number of correct predictions in no_question_overlap out of 685: {no_question_overlap_cnt}. Percentage : {no_question_overlap_cnt/685}')
+        print(f'Number of correct predictions in no_overlap out of 254: {no_overlap_cnt}. Percentage : {no_overlap_cnt/254}')
         pd.DataFrame(np.asarray(valcorrect_lst), columns=['question', 'answer', 'prediction']).to_csv(args.output_dir+'/triviaQA_correctvalid.csv')
     else:
         set_seed(42)

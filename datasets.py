@@ -5,14 +5,6 @@ import re
 import math 
 from transformers import pipeline
 
-def get_dataset(file_path):
-    data=[]
-    with open(file_path) as f:
-        for fileobj in f:
-            line = json.loads(fileobj)
-            data.append(line)
-    return data
-
 from nlp import load_dataset
 
 class Finetune(Dataset):
@@ -23,9 +15,9 @@ class Finetune(Dataset):
             self.dataset = load_dataset('trivia_qa', 'unfiltered.nocontext', split=type_path)
         elif self.name == 'naturalQA':
             if type_path == 'train':
-                self.dataset = get_dataset('NQ/nq_train.json')
+                self.dataset = self.get_dataset('NQ/nq_train.json')
             else:
-                self.dataset = get_dataset('NQ/nq_dev.json')
+                self.dataset = self.get_dataset('NQ/nq_dev.json')
         else:
             raise NameError('Name a correct dataset!')
         if args.valid_on_recentQA:     
@@ -42,6 +34,14 @@ class Finetune(Dataset):
             return len(self.dataset)
         else:
             return self.dataset.shape[0]
+
+    def get_dataset(self, file_path):
+        data=[]
+        with open(file_path) as f:
+            for fileobj in f:
+                line = json.loads(fileobj)
+                data.append(line)
+        return data
 
     def clean_text(self, text):
         text = text.replace('Example of text:', '')

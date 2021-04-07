@@ -3,3 +3,8 @@ closedbook-qa
 t5_trivia_qa_closedbook
 lightning_logs
 outputs
+triviaQA/unfiltered-web-dev.json
+triviaQA/unfiltered-web-test-without-answers.json
+__pycache__
+nohup.out
+.vscode
