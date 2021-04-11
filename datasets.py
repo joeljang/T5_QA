@@ -4,6 +4,8 @@ import json
 import re
 import math 
 from transformers import pipeline
+import os
+os.environ['TRANSFORMERS_CACHE'] = '/mnt/joel/'
 
 from nlp import load_dataset
 
@@ -12,7 +14,7 @@ class Finetune(Dataset):
         self.name = args.dataset
         self.args = args
         if self.name == 'triviaQA':
-            self.dataset = load_dataset('trivia_qa', 'unfiltered.nocontext', split=type_path)
+            self.dataset = load_dataset('trivia_qa', 'unfiltered.nocontext', split=type_path, cache_dir='/mnt/joel/datasets')
         elif self.name == 'naturalQA':
             if type_path == 'train':
                 self.dataset = self.get_dataset('NQ/nq_train.json')
@@ -94,8 +96,10 @@ class Pretrain(Dataset):
             self.nlp = pipeline("ner")
         else:
             self.ssm = False
-        if self.args.dataset == 'recentQA':
+        if self.args.dataset == 'recentQA_context':
             self.dataset = self.split_into_segment(pd.read_csv("recentQA/recentqa_context.csv", delimiter='\t'),input_length)
+        elif self.args.dataset == 'triviaQA_context':
+            self.dataset = pd.read_csv("/mnt/joel/triviaQA/context_preprocessed.csv", delimiter=',')
         else:
             raise NameError('Select the correct Dataset!')
         self.input_length = input_length
@@ -114,7 +118,10 @@ class Pretrain(Dataset):
             if len(row['context'].split()) > input_length:
                 word_list = row['context'].split()
                 seg1 = word_list[:input_length]
-                segment1, seg2_a = (' '.join(seg1)).rsplit('.',1)
+                try:
+                    segment1, seg2_a = (' '.join(seg1)).rsplit('.',1)
+                except ValueError as e:
+                    seg2_a = ''
                 segment2 = seg2_a + (' '.join(word_list[input_length:]))
                 ds.loc[index, 'context'] = segment1
                 while(len(segment2.split()) > input_length):

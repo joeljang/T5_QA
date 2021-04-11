@@ -1,0 +1,23 @@
+{
+    "input_length" : 512,
+    "output_length" : 512,
+    "num_train_epochs" : 30,
+    "output_dir" : "outputs/t5_pretrain_tqa_ssm",
+    "dataset" : "triviaQA_context",
+    "train_batch_size" : 4,
+    "learning_rate" : 1e-3,
+    "model" : "t5-base",
+    "gradient_accumulation_steps" : 1,
+    "ngpu" : 1,
+    "num_workers" : 8,
+    "resume_from_checkpoint" : null,
+    "accelerator" : "ddp",
+    "CUDA_VISIBLE_DEVICES" : "1",
+    "wandb_log": false,
+    "wandb_project": "closedbook-qa",
+    "wandb_run_name" : "T5_base_pretrain_TQA",
+    "mode" : "pretrain",
+    "valid_on_recentQA" : false,
+    "check_validation" : false,
+    "checkpoint_path" : ""
+}

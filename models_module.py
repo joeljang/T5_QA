@@ -11,6 +11,7 @@ import torch
 from datasets import Finetune, Pretrain
 from torch.utils.data import RandomSampler
 from torch.utils.data import Dataset, DataLoader
+from torch import nn
 
 import argparse
 import time
@@ -24,9 +25,13 @@ class T5FineTuner(pl.LightningModule):
     def __init__(self, hparams):
         super(T5FineTuner, self).__init__()
         self.hparams = hparams
-        #self.config = T5Config.from_pretrained(hparams.model_name_or_path)
-        #self.model = T5ForConditionalGeneration(self.config)
+        #Adding Module to inject new knowledge
+        #self.config = T5Config.from_pretrained('t5-base')
+        #self.module = T5ForConditionalGeneration(self.config) 
+        self.module = T5ForConditionalGeneration.from_pretrained('t5-base')
         self.model = T5ForConditionalGeneration.from_pretrained(hparams.model_name_or_path)
+        self.layer = nn.Linear(self.model.config.d_model, self.model.config.vocab_size)
+        self.criterion = nn.CrossEntropyLoss()
         self.tokenizer = T5Tokenizer.from_pretrained(hparams.tokenizer_name_or_path)
         
         if self.hparams.freeze_embeds:
@@ -34,7 +39,8 @@ class T5FineTuner(pl.LightningModule):
         if self.hparams.freeze_encoder:
             self.freeze_params(self.model.get_encoder())
             assert_all_frozen(self.model.get_encoder())
-        
+        #self.freeze_params(self.model) #Freezing Model
+
         self.step_count = 0
         self.output_dir = self.hparams.output_dir
             
@@ -148,13 +154,28 @@ class T5FineTuner(pl.LightningModule):
         return self.trainer.global_rank <= 0
     
     def forward(self, input_ids, attention_mask=None, decoder_input_ids=None, decoder_attention_mask=None, lm_labels=None):
-        return self.model(
+        output1 = self.model(
             input_ids,
             attention_mask=attention_mask,
             decoder_input_ids=decoder_input_ids,
             decoder_attention_mask=decoder_attention_mask,
             labels=lm_labels,
-    )
+            output_hidden_states=True
+        )
+        output2 = self.module(
+            input_ids,
+            attention_mask=attention_mask,
+            decoder_input_ids=decoder_input_ids,
+            decoder_attention_mask=decoder_attention_mask,
+            labels=lm_labels,
+            output_hidden_states=True
+        )
+        decoder_hidden_states = output1.decoder_hidden_states + output2.decoder_hidden_states
+        logits = self.layer(
+            [0])
+        loss = self.criterion(logits.permute(0,2,1),lm_labels)
+        #return output1
+        return loss
 
     def _step(self, batch):
         lm_labels = batch["target_ids"]
@@ -165,8 +186,8 @@ class T5FineTuner(pl.LightningModule):
             lm_labels=lm_labels,
             decoder_attention_mask=batch['target_mask']
         )
-
-        loss = outputs[0]
+        loss = outputs
+        #loss = outputs[0]
         return loss
     
     
@@ -224,7 +245,8 @@ class T5FineTuner(pl.LightningModule):
     def configure_optimizers(self):
         "Prepare optimizer and schedule (linear warmup and decay)"
 
-        model = self.model
+        #model = self.model
+        model = self.module
         no_decay = ["bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
             {
