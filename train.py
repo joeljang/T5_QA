@@ -106,7 +106,7 @@ if __name__ == '__main__':
     ## If resuming from checkpoint, add an arg resume_from_checkpoint
     train_params = dict(
         accumulate_grad_batches=args.gradient_accumulation_steps,
-        plugins=DDPPlugin(find_unused_parameters=False),
+        #plugins=DDPPlugin(find_unused_parameters=False),
         gpus=args.n_gpu,
         max_epochs=args.num_train_epochs,
         precision= 16 if args.fp_16 else 32,
@@ -116,7 +116,8 @@ if __name__ == '__main__':
         checkpoint_callback=checkpoint_callback,
         val_check_interval=args.val_check_interval,
         logger=wandb_logger,
-        accelerator=hparam.accelerator
+        accelerator=hparam.accelerator,
+        plugins='ddp_sharded'
     )
     if args.check_validation:
         model = T5FineTuner.load_from_checkpoint(checkpoint_path=args.checkpoint_path, hparams=args)
