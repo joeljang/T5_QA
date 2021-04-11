@@ -23,7 +23,8 @@ from transformers import (
 import textwrap
 from tqdm.auto import tqdm
 
-from models import T5FineTuner
+#from models import T5FineTuner
+from models2 import T5FineTuner
 from datasets import Pretrain, Finetune
 from torch.utils.data import Dataset, DataLoader
 
@@ -106,7 +107,11 @@ if __name__ == '__main__':
     ## If resuming from checkpoint, add an arg resume_from_checkpoint
     train_params = dict(
         accumulate_grad_batches=args.gradient_accumulation_steps,
+<<<<<<< HEAD
         #plugins=DDPPlugin(find_unused_parameters=False),
+=======
+        plugins=DDPPlugin(find_unused_parameters=True),
+>>>>>>> a6ecda57ae81e01d3feff114ba9dc699602c308f
         gpus=args.n_gpu,
         max_epochs=args.num_train_epochs,
         precision= 16 if args.fp_16 else 32,
@@ -119,6 +124,7 @@ if __name__ == '__main__':
         accelerator=hparam.accelerator,
         plugins='ddp_sharded'
     )
+    
     if args.check_validation:
         model = T5FineTuner.load_from_checkpoint(checkpoint_path=args.checkpoint_path, hparams=args)
         model.eval()
