@@ -21,13 +21,9 @@ from transformers import (
 import textwrap
 from tqdm.auto import tqdm
 
-<<<<<<< HEAD
-from models import T5FineTuner
-=======
 #from models import T5FineTuner
 #from models_module_output import T5FineTuner
 from models_module_encoder import T5FineTuner
->>>>>>> 960e956413e2617821331c042b62e079623ec4c4
 from datasets import Pretrain, Finetune
 from torch.utils.data import Dataset, DataLoader
 
@@ -110,11 +106,7 @@ if __name__ == '__main__':
     ## If resuming from checkpoint, add an arg resume_from_checkpoint
     train_params = dict(
         accumulate_grad_batches=args.gradient_accumulation_steps,
-<<<<<<< HEAD
-        #plugins=DDPPlugin(find_unused_parameters=True),
-=======
         plugins=DDPPlugin(find_unused_parameters=False),
->>>>>>> 960e956413e2617821331c042b62e079623ec4c4
         gpus=args.n_gpu,
         max_epochs=args.num_train_epochs,
         precision= 16 if args.fp_16 else 32,
@@ -181,20 +173,13 @@ if __name__ == '__main__':
                         question_check = True
                         if "no_question_overlap" in l:
                             no_question_overlap = True
-<<<<<<< HEAD
-                lines = textwrap.wrap("\n%s\n" % texts[i], width=100)
-=======
                 lines = textwrap.wrap("\n%s\n" % texts[i], width=200)
->>>>>>> 960e956413e2617821331c042b62e079623ec4c4
                 ground_truth = clean_up(targets[i])
                 predicted = clean_up(dec[i])
                 em = model.exact_match_score(predicted, ground_truth)
                 subset = model.approx_match_score(predicted, ground_truth)
-<<<<<<< HEAD
-=======
                 print(f'QUESTION : {lines[0]}')
                 print(f'GROUD TRUTH: {ground_truth}, PREDICTED: {predicted}')
->>>>>>> 960e956413e2617821331c042b62e079623ec4c4
                 if em == 1:
                     if no_answer_overlap:
                         no_answer_overlap_cnt+=1
@@ -205,45 +190,28 @@ if __name__ == '__main__':
                         no_overlap_cnt+=1
                     em_correct_num+=1
                     #valcorrect_lst.append([clean_up(" ".join(lines)), ground_truth, predicted])
-<<<<<<< HEAD
-                if no_answer_overlap and no_question_overlap:
-                    no_overlap_list.append([clean_up(" ".join(lines)), ground_truth, predicted])
-                if subset == 1:
-=======
                 no_overlap_list.append([lines[0], ground_truth, predicted])
                 if subset == 1:
                     no_overlap_list.pop()
                     no_overlap_list.append([lines[0], ground_truth, 'CORRECT: '+predicted])
                     #no_overlap_list.append([lines[0], ground_truth, predicted])
->>>>>>> 960e956413e2617821331c042b62e079623ec4c4
                     if no_answer_overlap:
                         no_answer_overlap_cnt_s+=1
                     if no_question_overlap:
                         no_question_overlap_cnt_s+=1
                     if no_answer_overlap and no_question_overlap:
-<<<<<<< HEAD
-                        #no_overlap_list.append([clean_up(" ".join(lines)), ground_truth, predicted])
-=======
                         #no_overlap_list.append([lines[0], ground_truth, predicted])
->>>>>>> 960e956413e2617821331c042b62e079623ec4c4
                         no_overlap_cnt_s+=1
                     subset_correct_num+=1
 
         print(f'Number of total validation data: {total_cnt}')
         print(f'Number of correct predictions out of {total_cnt} : {em_correct_num, subset_correct_num}. Percentage : {em_correct_num / total_cnt, subset_correct_num / total_cnt}')
-<<<<<<< HEAD
-        print(f'Number of correct predictions in no_answer_overlap out of 3201: {no_answer_overlap_cnt, no_answer_overlap_cnt_s}. Percentage : {no_answer_overlap_cnt/3201, no_answer_overlap_cnt_s/3201}')
-        print(f'Number of correct predictions in no_question_overlap out of 685: {no_question_overlap_cnt, no_question_overlap_cnt_s}. Percentage : {no_question_overlap_cnt/685, no_question_overlap_cnt_s / 685}')
-        print(f'Number of correct predictions in no_overlap out of 254: {no_overlap_cnt, no_overlap_cnt_s}. Percentage : {no_overlap_cnt/254, no_overlap_cnt_s/254}')
-        pd.DataFrame(np.asarray(no_overlap_list), columns=['question', 'answer', 'prediction']).to_csv('triviaQA_no_overlap_all.csv')
-=======
         #print(f'Number of correct predictions in no_answer_overlap out of 3201: {no_answer_overlap_cnt, no_answer_overlap_cnt_s}. Percentage : {no_answer_overlap_cnt/3201, no_answer_overlap_cnt_s/3201}')
         #print(f'Number of correct predictions in no_question_overlap out of 685: {no_question_overlap_cnt, no_question_overlap_cnt_s}. Percentage : {no_question_overlap_cnt/685, no_question_overlap_cnt_s / 685}')
         #print(f'Number of correct predictions in no_overlap out of 254: {no_overlap_cnt, no_overlap_cnt_s}. Percentage : {no_overlap_cnt/254, no_overlap_cnt_s/254}')
         #pd.DataFrame(np.asarray(no_overlap_list), columns=['question', 'answer', 'prediction']).to_csv('triviaQA_no_overlap_cloze.csv')
         pd.DataFrame(np.asarray(no_overlap_list), columns=['question', 'answer', 'prediction']).to_csv('triviaQA_recentQA_pretrained.csv')
 
->>>>>>> 960e956413e2617821331c042b62e079623ec4c4
     else:
         set_seed(42)
         model = T5FineTuner(args)
