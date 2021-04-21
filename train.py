@@ -3,13 +3,11 @@ from argparse import ArgumentParser
 import os
 import json
 import random
-
 import numpy as np
 import pandas as pd
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.plugins import DDPPlugin
 
 from transformers import (
     AdamW,
@@ -23,8 +21,7 @@ from transformers import (
 import textwrap
 from tqdm.auto import tqdm
 
-#from models import T5FineTuner
-from models2 import T5FineTuner
+from models import T5FineTuner
 from datasets import Pretrain, Finetune
 from torch.utils.data import Dataset, DataLoader
 
@@ -107,11 +104,7 @@ if __name__ == '__main__':
     ## If resuming from checkpoint, add an arg resume_from_checkpoint
     train_params = dict(
         accumulate_grad_batches=args.gradient_accumulation_steps,
-<<<<<<< HEAD
-        #plugins=DDPPlugin(find_unused_parameters=False),
-=======
-        plugins=DDPPlugin(find_unused_parameters=True),
->>>>>>> a6ecda57ae81e01d3feff114ba9dc699602c308f
+        #plugins=DDPPlugin(find_unused_parameters=True),
         gpus=args.n_gpu,
         max_epochs=args.num_train_epochs,
         precision= 16 if args.fp_16 else 32,
@@ -131,7 +124,7 @@ if __name__ == '__main__':
         model.to('cuda')
         
         tokenizer = T5Tokenizer.from_pretrained(args.model_name_or_path)
-        dataset = Finetune(tokenizer, 'validation', None, 25, 10, args=args)
+        dataset = Finetune(tokenizer, 'validation', None, 30, 10, args=args)
         loader = DataLoader(dataset, batch_size=64, shuffle=False)
         test_train_overlap = dataset.get_dataset('triviaQA/test_train_overlap.json')
         total_cnt = 0
@@ -139,7 +132,11 @@ if __name__ == '__main__':
         no_answer_overlap_cnt = 0
         no_question_overlap_cnt = 0
         no_overlap_cnt = 0
-        valcorrect_lst=[]
+        subset_correct_num = 0
+        no_answer_overlap_cnt_s = 0
+        no_question_overlap_cnt_s = 0
+        no_overlap_cnt_s = 0
+        no_overlap_list=[]
         for batch in iter(loader):
             outs = model.model.generate(
                 batch["source_ids"].cuda(),
@@ -166,29 +163,44 @@ if __name__ == '__main__':
                 test_train_labels = test_train_overlap[total_cnt-1]["labels"]
                 if "no_answer_overlap" in test_train_labels:
                     no_answer_overlap = True
-                if "question" in test_train_labels:
-                    question_check = True
-                    if "no_question_overlap" in test_train_labels:
-                        no_question_overlap = True
+                for l in test_train_labels:
+                    if "question" in l:
+                        question_check = True
+                        if "no_question_overlap" in l:
+                            no_question_overlap = True
                 lines = textwrap.wrap("\n%s\n" % texts[i], width=100)
                 ground_truth = clean_up(targets[i])
                 predicted = clean_up(dec[i])
                 em = model.exact_match_score(predicted, ground_truth)
+                subset = model.approx_match_score(predicted, ground_truth)
                 if em == 1:
                     if no_answer_overlap:
                         no_answer_overlap_cnt+=1
                     if no_question_overlap:
                         no_question_overlap_cnt+=1
                     if no_answer_overlap and no_question_overlap:
+                        #no_overlap_list.append([clean_up(" ".join(lines)), ground_truth, predicted])
                         no_overlap_cnt+=1
                     em_correct_num+=1
-                    valcorrect_lst.append([clean_up(" ".join(lines)), ground_truth, predicted])
+                    #valcorrect_lst.append([clean_up(" ".join(lines)), ground_truth, predicted])
+                if no_answer_overlap and no_question_overlap:
+                    no_overlap_list.append([clean_up(" ".join(lines)), ground_truth, predicted])
+                if subset == 1:
+                    if no_answer_overlap:
+                        no_answer_overlap_cnt_s+=1
+                    if no_question_overlap:
+                        no_question_overlap_cnt_s+=1
+                    if no_answer_overlap and no_question_overlap:
+                        #no_overlap_list.append([clean_up(" ".join(lines)), ground_truth, predicted])
+                        no_overlap_cnt_s+=1
+                    subset_correct_num+=1
+
         print(f'Number of total validation data: {total_cnt}')
-        print(f'Number of correct predictions out of {total_cnt} : {em_correct_num}. Percentage : {em_correct_num / total_cnt}')
-        print(f'Number of correct predictions in no_answer_overlap out of 3201: {no_answer_overlap_cnt}. Percentage : {no_answer_overlap_cnt/3201}')
-        print(f'Number of correct predictions in no_question_overlap out of 685: {no_question_overlap_cnt}. Percentage : {no_question_overlap_cnt/685}')
-        print(f'Number of correct predictions in no_overlap out of 254: {no_overlap_cnt}. Percentage : {no_overlap_cnt/254}')
-        pd.DataFrame(np.asarray(valcorrect_lst), columns=['question', 'answer', 'prediction']).to_csv(args.output_dir+'/triviaQA_correctvalid.csv')
+        print(f'Number of correct predictions out of {total_cnt} : {em_correct_num, subset_correct_num}. Percentage : {em_correct_num / total_cnt, subset_correct_num / total_cnt}')
+        print(f'Number of correct predictions in no_answer_overlap out of 3201: {no_answer_overlap_cnt, no_answer_overlap_cnt_s}. Percentage : {no_answer_overlap_cnt/3201, no_answer_overlap_cnt_s/3201}')
+        print(f'Number of correct predictions in no_question_overlap out of 685: {no_question_overlap_cnt, no_question_overlap_cnt_s}. Percentage : {no_question_overlap_cnt/685, no_question_overlap_cnt_s / 685}')
+        print(f'Number of correct predictions in no_overlap out of 254: {no_overlap_cnt, no_overlap_cnt_s}. Percentage : {no_overlap_cnt/254, no_overlap_cnt_s/254}')
+        pd.DataFrame(np.asarray(no_overlap_list), columns=['question', 'answer', 'prediction']).to_csv('triviaQA_no_overlap_all.csv')
     else:
         set_seed(42)
         model = T5FineTuner(args)

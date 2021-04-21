@@ -4,17 +4,6 @@
     "num_train_epochs" : 30,
     "output_dir" : "outputs/t5_base(withmodule)_tqa_nossm",
     "dataset" : "triviaQA",
-<<<<<<< HEAD
-    "train_batch_size" : 128,
-    "learning_rate" : 1e-3,
-    "model" : "t5-base",
-    "gradient_accumulation_steps" : 1,
-    "ngpu" : 2,
-    "num_workers" :8,
-    "resume_from_checkpoint" : null,
-    "accelerator" : "ddp",
-    "CUDA_VISIBLE_DEVICES" : "0,1",
-=======
     "train_batch_size" : 32,
     "learning_rate" : 1e-3,
     "model" : "t5-base",
@@ -24,7 +13,6 @@
     "resume_from_checkpoint" : null,
     "accelerator" : "ddp_spawn",
     "CUDA_VISIBLE_DEVICES" : "2",
->>>>>>> a6ecda57ae81e01d3feff114ba9dc699602c308f
     "wandb_log": false,
     "wandb_project": "closedbook-qa",
     "wandb_run_name" : "T5_base_(withmodule)_TQA_NOSSM",
