@@ -4,6 +4,7 @@
     "num_train_epochs" : 30,
     "output_dir" : "outputs/t5_base(withmodule)_tqa_nossm",
     "dataset" : "triviaQA",
+<<<<<<< HEAD:configs/fine_tune/t5_base_tqa.json
     "train_batch_size" : 32,
     "learning_rate" : 1e-3,
     "model" : "t5-base",
@@ -13,11 +14,22 @@
     "resume_from_checkpoint" : null,
     "accelerator" : "ddp_spawn",
     "CUDA_VISIBLE_DEVICES" : "2",
+=======
+    "train_batch_size" : 96,
+    "learning_rate" : 1e-2,
+    "model" : "t5-base",
+    "gradient_accumulation_steps" : 1,
+    "ngpu" : 3,
+    "num_workers" :8,
+    "resume_from_checkpoint" : null,
+    "accelerator" : "ddp",
+    "CUDA_VISIBLE_DEVICES" : "1,2,3",
+>>>>>>> 960e956413e2617821331c042b62e079623ec4c4:configs/fine_tune/t5_base_nossm.json
     "wandb_log": false,
     "wandb_project": "closedbook-qa",
     "wandb_run_name" : "T5_base_(withmodule)_TQA_NOSSM",
     "mode": "finetune",
     "valid_on_recentQA" : false,
     "check_validation" : false,
-    "checkpoint_path" : ""
+    "checkpoint_path" : "/mnt/joel/outputs/t5_base_tqa_nossm/epoch=79.ckpt"
 }

@@ -62,8 +62,13 @@ class T5FineTuner(pl.LightningModule):
 
         def lower(text):
             return text.lower()
+        
+        def rid_of_specials(text):
+            text = text.replace("<extra_id_0>", "")
+            text = text.replace("<extra_id_1>", "")
+            return text
 
-        return white_space_fix(remove_articles(remove_punc(lower(s))))
+        return rid_of_specials(white_space_fix(remove_articles(remove_punc(lower(s)))))
 
     def exact_match_score(self, prediction, ground_truth):
         return int(self.normalize_answer(prediction) == self.normalize_answer(ground_truth))
