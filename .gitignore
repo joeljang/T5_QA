@@ -9,4 +9,5 @@ triviaQA/context.csv
 nohup*
 .vscode
 tmp
-google_storage_key.json
+recentQA
+triviaQA

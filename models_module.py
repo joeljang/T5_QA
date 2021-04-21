@@ -28,10 +28,11 @@ class T5FineTuner(pl.LightningModule):
         #Adding Module to inject new knowledge
         #self.config = T5Config.from_pretrained('t5-base')
         #self.module = T5ForConditionalGeneration(self.config) 
-        self.module = T5ForConditionalGeneration.from_pretrained('t5-base')
+        #self.module = T5ForConditionalGeneration.from_pretrained('t5-base')
         self.model = T5ForConditionalGeneration.from_pretrained(hparams.model_name_or_path)
-        self.layer = nn.Linear(self.model.config.d_model, self.model.config.vocab_size)
+        #self.layer = nn.Linear(self.model.config.d_model, self.model.config.vocab_size)
         self.criterion = nn.CrossEntropyLoss()
+        self.softmax = nn.Softmax(2)
         self.tokenizer = T5Tokenizer.from_pretrained(hparams.tokenizer_name_or_path)
         
         if self.hparams.freeze_embeds:
@@ -162,6 +163,7 @@ class T5FineTuner(pl.LightningModule):
             labels=lm_labels,
             output_hidden_states=True
         )
+        '''
         output2 = self.module(
             input_ids,
             attention_mask=attention_mask,
@@ -171,11 +173,11 @@ class T5FineTuner(pl.LightningModule):
             output_hidden_states=True
         )
         decoder_hidden_states = output1.decoder_hidden_states + output2.decoder_hidden_states
-        logits = self.layer(
-            [0])
+        logits = self.layer(decoder_hidden_states[-1])
         loss = self.criterion(logits.permute(0,2,1),lm_labels)
-        #return output1
-        return loss
+        '''
+        return output1
+        #return loss
 
     def _step(self, batch):
         lm_labels = batch["target_ids"]
@@ -186,8 +188,8 @@ class T5FineTuner(pl.LightningModule):
             lm_labels=lm_labels,
             decoder_attention_mask=batch['target_mask']
         )
-        loss = outputs
-        #loss = outputs[0]
+        #loss = outputs
+        loss = outputs[0]
         return loss
     
     
@@ -196,12 +198,47 @@ class T5FineTuner(pl.LightningModule):
             generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
         )
         return self.lmap(str.strip, gen_text)
-    
+
+    def predict(self, batch, decoder_input_ids, step, decoder_attention_mask):
+        def_ids = torch.tensor(decoder_input_ids, dtype=int).to('cuda')
+        def_masks = torch.tensor(decoder_attention_mask, dtype=int).to('cuda')
+        output1 = self.model(
+            batch["source_ids"],
+            attention_mask=batch["source_mask"],
+            decoder_attention_mask=def_masks,
+            decoder_input_ids=def_ids,
+            output_hidden_states=True
+        )
+        '''
+        output2 = self.module(
+            batch["source_ids"],
+            attention_mask=batch["source_mask"],
+            decoder_input_ids=def_ids,
+            output_hidden_states=True
+        )
+        
+        decoder_hidden_states = output1.decoder_hidden_states + output2.decoder_hidden_states
+        logits = self.layer(decoder_hidden_states[-1])
+        outputs = (self.softmax(logits)).argmax(2)
+        decode_id = outputs[:,step].cpu().numpy()
+        '''
+        outputs = (self.softmax(output1.logits)).argmax(2)
+        decode_id = outputs[:,step].cpu().numpy()
+        decoder_input_ids[:,step] = decode_id
+        decoder_attention_mask[:,step+1] = np.ones(len(decoder_attention_mask))
+        return decoder_input_ids, decoder_attention_mask
      
     def _generative_step(self, batch):
         
         t0 = time.time()
         
+        generated_ids = np.zeros(list(batch['source_ids'].size()))
+        decode_masks = np.zeros(list(batch['target_mask'].size()))
+        decode_masks[:,0] = np.ones(len(decode_masks))
+        for i in range(10):
+            generated_ids, decode_masks = self.predict(batch, generated_ids, i, decode_masks)
+        
+        '''
         generated_ids = self.model.generate(
             batch["source_ids"],
             attention_mask=batch["source_mask"],
@@ -211,8 +248,12 @@ class T5FineTuner(pl.LightningModule):
             num_beams=2,
             early_stopping=True
         )
+        '''
         preds = self.ids_to_clean_text(generated_ids)
         targets = self.ids_to_clean_text(batch["target_ids"])
+        for i in range(5):
+            print(f'TARGETS : {targets[i]}')
+            print(f'PREDICTIONS: {preds[i]}')
             
         gen_time = (time.time() - t0) / batch["source_ids"].shape[0]  
     
@@ -245,8 +286,8 @@ class T5FineTuner(pl.LightningModule):
     def configure_optimizers(self):
         "Prepare optimizer and schedule (linear warmup and decay)"
 
-        #model = self.model
-        model = self.module
+        model = self.model
+        #model = self.module
         no_decay = ["bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
             {

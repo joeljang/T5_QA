@@ -1,5 +1,5 @@
 {
-    "input_length" : 25,
+    "input_length" : 40,
     "output_length" : 10,
     "num_train_epochs" : 100,
     "output_dir" : "outputs/t5_large_nossm",
@@ -12,12 +12,12 @@
     "num_workers" : 8,
     "resume_from_checkpoint" : null,
     "accelerator" : "ddp",
-    "CUDA_VISIBLE_DEVICES" : "1",
+    "CUDA_VISIBLE_DEVICES" : "2",
     "wandb_log": false,
     "wandb_project": "closedbook-qa",
     "wandb_run_name" : "T5_large_TQA_SSM",
     "mode" : "finetune",
-    "valid_on_recentQA" : false,
+    "valid_on_recentQA" : true,
     "check_validation" : true,
-    "checkpoint_path" : "outputs/t5_large_ssm/epoch=15-step=5471.ckpt"
+    "checkpoint_path" : "outputs/t5_large_pretrain_rqa_ssm/epoch=0-step=25.ckpt"
 }
