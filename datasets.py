@@ -103,7 +103,7 @@ class Pretrain(Dataset):
         if self.args.dataset == 'recentQA_context':
             self.dataset = self.split_into_segment(pd.read_csv("recentQA/recentqa_context.csv", delimiter='\t'),input_length)
         elif self.args.dataset == 'triviaQA_context':
-            self.dataset = pd.read_csv("/mnt/joel/triviaQA/context_preprocessed.csv", delimiter=',')
+            self.dataset = pd.read_csv("/triviaQA/context_preprocessed.csv", delimiter=',')
         else:
             raise NameError('Select the correct Dataset!')
         self.input_length = input_length
