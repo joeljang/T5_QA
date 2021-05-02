@@ -5,27 +5,30 @@ import re
 import math 
 from transformers import pipeline
 import os
+import random
+os.environ['TRANSFORMERS_CACHE'] = '/mnt/joel/'
 
 from nlp import load_dataset
+import pprint
 
 class Finetune(Dataset):
     def __init__(self, tokenizer, type_path, num_samples, input_length, output_length, args, print_text=False):         
         self.name = args.dataset
         self.args = args
-        if self.name == 'triviaQA':
-            self.dataset = load_dataset('trivia_qa', 'unfiltered.nocontext', split=type_path)
-        elif self.name == 'naturalQA':
-            if type_path == 'train':
-                self.dataset = self.get_dataset('NQ/nq_train.json')
-            else:
-                self.dataset = self.get_dataset('NQ/nq_dev.json')
-        else:
-            raise NameError('Name a correct dataset!')
         if args.valid_on_recentQA:     
             if type_path=='validation':
-                self.dataset = pd.read_csv("triviaQA/no_overlap_cloze.csv", delimiter='|')
-                #self.dataset = pd.read_csv("recentQA/recentqa_cloze.csv", delimiter='|')
-                #self.dataset = pd.read_csv("recentQA/recentqa_qa.csv", delimiter=',')
+                #self.dataset = pd.read_csv("triviaQA/no_overlap_cloze.csv", delimiter='|')
+                self.dataset = pd.read_csv("recentQA/recentqa_cloze.csv", delimiter='|')
+        else:
+            if self.name == 'triviaQA':
+                self.dataset = load_dataset('trivia_qa', 'unfiltered.nocontext', split=type_path, cache_dir='/mnt/joel/datasets')
+            elif self.name == 'naturalQA':
+                if type_path == 'train':
+                    self.dataset = self.get_dataset('NQ/nq_train.json')
+                else:
+                    self.dataset = self.get_dataset('NQ/nq_dev.json')
+            else:
+                raise NameError('Name a correct dataset!')
         self.input_length = input_length
         self.tokenizer = tokenizer
         self.output_length = output_length
@@ -287,3 +290,178 @@ class Pretrain(Dataset):
         target_mask = targets["attention_mask"].squeeze()
 
         return {"source_ids": source_ids, "source_mask": src_mask, "target_ids": target_ids, "target_mask": target_mask}
+
+
+class Probe(Dataset):
+    def __init__(self, tokenizer, type_path, num_samples, input_length, output_length, args):
+        self.args = args
+        #self.nlp = pipeline("ner")
+        if self.args.dataset == 'trex':
+            parameters = self.get_TREx_parameters()
+        elif self.args.dataset == 'googlere':
+            parameters = self.get_GoogleRE_parameters()
+        elif self.args.dataset == 'conceptnet':
+            parameters = self.get_ConceptNet_parameters()
+        elif self.args.dataset == 'squad':
+            parameters = self.get_Squad_parameters()
+        else:
+            raise NameError('Select the correct Dataset!')
+        self.input_length = input_length
+        self.tokenizer = tokenizer
+        self.output_length = output_length
+        self.dataset, self.entity_relation = self.getdataset(*parameters) 
+        
+    def __len__(self):
+        return len(self.dataset)
+    
+    def getdataset(self, relations, data_path_pre, data_path_post):
+        full_dataset = []
+        total_cnt=0
+        string_match_cnt=0
+        non_entity_cnt=0
+        entity_lst = pd.read_csv('lama/entity_list.csv')
+        entity_lst = list(entity_lst['entity'])
+        entity_relation = {}
+        for relation in relations:
+            dataset_filename = "{}{}{}".format(data_path_pre, relation["relation"], data_path_post)
+            try:
+                all_samples = self.load_file(dataset_filename)
+            except Exception as e:
+                continue
+            
+            if relation['template'] and relation['template'] != "":
+                facts = []
+                for sample in all_samples:
+                    total_cnt+=1
+                    sub = sample["sub_label"]
+                    obj = sample["obj_label"]
+                    # Excluding samples with string match filter just like E-BERT
+                    if obj in sub:
+                        string_match_cnt+=1
+                        continue 
+                    # Exclude objects that are non-entity
+                    if not (obj in entity_lst):
+                        non_entity_cnt+=1
+                        continue 
+                    #Saving information for n to m relations
+                    if sub not in entity_relation:
+                        entity_relation[sub] = [obj]
+                    elif obj not in entity_relation[sub]:
+                        entity_relation[sub].append(obj)
+                    if (sub, obj) not in facts:
+                        facts.append((sub, obj))
+                all_samples = []
+                for fact in facts:
+                    (sub, obj) = fact
+                    sample = {}
+                    sample["sub_label"] = sub
+                    sample["obj_label"] = obj
+                    # sobstitute all sentences with a standard template
+                    sample["masked_sentences"] = self.parse_template(
+                        relation['template'].strip(), sample["sub_label"].strip(), "[MASK]"
+                    )
+                    all_samples.append(sample)
+            
+            full_dataset = full_dataset + all_samples
+
+        with open('entity_relation.json', 'w', encoding='utf-16') as fp:
+            json.dump(entity_relation, fp)
+
+        print('Number of object string match to subject: ', string_match_cnt)
+        print('Number of object that are non entities: ', non_entity_cnt)
+        print('Length of the modified dataset is :',len(full_dataset))
+        random.shuffle(full_dataset)
+        
+        return full_dataset, entity_relation
+
+    def parse_template(self, template, subject_label, object_label):
+        SUBJ_SYMBOL = "[X]"
+        OBJ_SYMBOL = "[Y]"
+        template = template.replace(SUBJ_SYMBOL, subject_label)
+        template = template.replace(OBJ_SYMBOL, object_label)
+        return [template]
+
+    def load_file(self, filename):
+        data = []
+        with open(filename, "r") as f:
+            for line in f.readlines():
+                data.append(json.loads(line))
+        return data
+
+    def get_TREx_parameters(self, data_path_pre="lama/"):
+        relations = self.load_file("{}relations.jsonl".format(data_path_pre))
+        data_path_pre += "TREx/"
+        data_path_post = ".jsonl"
+        return relations, data_path_pre, data_path_post
+
+    def get_GoogleRE_parameters(self):
+        relations = [
+            {
+                "relation": "place_of_birth",
+                "template": "[X] was born in [Y] .",
+                "template_negated": "[X] was not born in [Y] .",
+            },
+            {
+                "relation": "date_of_birth",
+                "template": "[X] (born [Y]).",
+                "template_negated": "[X] (not born [Y]).",
+            },
+            {
+                "relation": "place_of_death",
+                "template": "[X] died in [Y] .",
+                "template_negated": "[X] did not die in [Y] .",
+            },
+        ]
+        data_path_pre = "lama/Google_RE/"
+        data_path_post = "_test.jsonl"
+        return relations, data_path_pre, data_path_post
+
+
+    def get_ConceptNet_parameters(self,data_path_pre="lama/"):
+        relations = [{"relation": "test"}]
+        data_path_pre += "ConceptNet/"
+        data_path_post = ".jsonl"
+        return relations, data_path_pre, data_path_post
+
+
+    def get_Squad_parameters(self,data_path_pre="lama/"):
+        relations = [{"relation": "test"}]
+        data_path_pre += "Squad/"
+        data_path_post = ".jsonl"
+        return relations, data_path_pre, data_path_post
+
+    def clean_text(self, text):
+        if '[MASK]' not in text:
+            raise NameError('No [MASK] in input sentence!')
+        text = text.replace('[MASK]', '<extra_id_0>')
+        text = text.replace('\n','')
+        text = text.replace('``', '')
+        text = text.replace('"', '')
+        text = re.sub("\\[.*\\]",'',text)
+        return text
+
+    def convert_to_features(self, example_batch):
+        # Tokenize contexts and questions (as pairs of inputs)
+        input_ = self.clean_text(example_batch['masked_sentences'][0])
+        target_ = example_batch['obj_label']
+        subject_ = example_batch['sub_label']
+        source = self.tokenizer.batch_encode_plus([input_], max_length=self.input_length, 
+                                                     padding='max_length', truncation=True, return_tensors="pt")
+        targets = self.tokenizer.batch_encode_plus([target_], max_length=self.output_length, 
+                                                     padding='max_length', truncation=True, return_tensors="pt")
+        subjects = self.tokenizer.batch_encode_plus([subject_], max_length=30, 
+                                                     padding='max_length', truncation=True, return_tensors="pt")
+        return source, targets, subjects
+  
+    def __getitem__(self, index):
+        source, targets, subjects = self.convert_to_features(self.dataset[index])
+        
+        source_ids = source["input_ids"].squeeze()
+        target_ids = targets["input_ids"].squeeze()
+        subject_ids = subjects["input_ids"].squeeze()
+
+        src_mask    = source["attention_mask"].squeeze()
+        target_mask = targets["attention_mask"].squeeze()
+        subject_mask = subjects["input_ids"].squeeze()
+
+        return {"source_ids": source_ids, "source_mask": src_mask, "target_ids": target_ids, "target_mask": target_mask, "subject_ids": subject_ids, "subject_mask": subject_mask}

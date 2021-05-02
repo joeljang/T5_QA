@@ -609,9 +609,9 @@ class T5FineTuner(pl.LightningModule):
 
         preds = self.ids_to_clean_text(generated_ids)
         targets = self.ids_to_clean_text(batch["target_ids"])
-        for i in range(3):
-            print(f'TARGETS : {targets[i]}')
-            print(f'PREDICTIONS: {preds[i]}')
+        #for i in range(3):
+        #    print(f'TARGETS : {targets[i]}')
+        #    print(f'PREDICTIONS: {preds[i]}')
             
         gen_time = (time.time() - t0) / batch["source_ids"].shape[0]  
     
@@ -620,17 +620,17 @@ class T5FineTuner(pl.LightningModule):
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         summ_len = np.mean(self.lmap(len, generated_ids))
         em_score, subset_match_score = self.calculate_scores(preds, targets)
-        bleu_score = self.bleu(preds,targets)
+        #bleu_score = self.bleu(preds,targets)
         self.em_score_list.append(em_score)
         self.subset_score_list.append(subset_match_score)
         
         em_score = torch.tensor(em_score,dtype=torch.float32)
         subset_match_score = torch.tensor(subset_match_score,dtype=torch.float32)
-        bleu_score = torch.tensor(bleu_score,dtype=torch.float32)
+        #bleu_score = torch.tensor(bleu_score,dtype=torch.float32)
         
         self.log('em_score', em_score, prog_bar=True, logger=True)
         self.log('subset_match_score', subset_match_score, prog_bar=True, logger=True)
-        self.log('bleu_score', bleu_score, prog_bar=True, logger=True)
+        #self.log('bleu_score', bleu_score, prog_bar=True, logger=True)
     
 
     def training_step(self, batch, batch_idx):

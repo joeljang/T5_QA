@@ -8,7 +8,7 @@ from transformers import (
     get_linear_schedule_with_warmup
 )
 import torch
-from datasets import Finetune, Pretrain
+from datasets import Finetune, Pretrain, Probe
 from torch.utils.data import RandomSampler
 from torch.utils.data import Dataset, DataLoader
 
@@ -124,6 +124,9 @@ class T5FineTuner(pl.LightningModule):
         elif args.mode =='finetune':
             return Finetune(tokenizer=tokenizer, type_path=type_path, num_samples=num_samples,  input_length=args.max_input_length, 
                             output_length=args.max_output_length, args=args)
+        elif args.mode =='probe':
+            return Probe(tokenizer=tokenizer, type_path=type_path, num_samples=num_samples,  input_length=args.max_input_length, 
+                            output_length=args.max_output_length, args=args)
         else:
             raise NameError('Select the correct mode dude..')
 
@@ -195,6 +198,7 @@ class T5FineTuner(pl.LightningModule):
             num_beams=2,
             early_stopping=True
         )
+
         preds = self.ids_to_clean_text(generated_ids)
         targets = self.ids_to_clean_text(batch["target_ids"])
             
@@ -205,17 +209,17 @@ class T5FineTuner(pl.LightningModule):
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         summ_len = np.mean(self.lmap(len, generated_ids))
         em_score, subset_match_score = self.calculate_scores(preds, targets)
-        bleu_score = self.bleu(preds,targets)
+        #bleu_score = self.bleu(preds,targets)
         self.em_score_list.append(em_score)
         self.subset_score_list.append(subset_match_score)
         
         em_score = torch.tensor(em_score,dtype=torch.float32)
         subset_match_score = torch.tensor(subset_match_score,dtype=torch.float32)
-        bleu_score = torch.tensor(bleu_score,dtype=torch.float32)
+        #bleu_score = torch.tensor(bleu_score,dtype=torch.float32)
         
         self.log('em_score', em_score, prog_bar=True, logger=True)
         self.log('subset_match_score', subset_match_score, prog_bar=True, logger=True)
-        self.log('bleu_score', bleu_score, prog_bar=True, logger=True)
+        #self.log('bleu_score', bleu_score, prog_bar=True, logger=True)
     
 
     def training_step(self, batch, batch_idx):
