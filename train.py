@@ -106,7 +106,7 @@ if __name__ == '__main__':
     ## If resuming from checkpoint, add an arg resume_from_checkpoint
     train_params = dict(
         accumulate_grad_batches=args.gradient_accumulation_steps,
-        plugins=DDPPlugin(find_unused_parameters=False),
+        #plugins=DDPPlugin(find_unused_parameters=False),
         gpus=args.n_gpu,
         max_epochs=args.num_train_epochs,
         precision= 16 if args.fp_16 else 32,
@@ -141,7 +141,7 @@ if __name__ == '__main__':
         no_overlap_cnt_s = 0
         no_overlap_list=[]
         for batch in iter(loader):
-            outs = model.model.generate(
+            outs = model.generate(
                 batch["source_ids"].cuda(),
                 attention_mask=batch["source_mask"].cuda(),
                 use_cache=True,

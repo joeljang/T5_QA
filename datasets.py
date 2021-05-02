@@ -23,8 +23,8 @@ class Finetune(Dataset):
             raise NameError('Name a correct dataset!')
         if args.valid_on_recentQA:     
             if type_path=='validation':
-                #self.dataset = pd.read_csv("triviaQA/no_overlap_cloze.csv", delimiter='|')
-                self.dataset = pd.read_csv("recentQA/recentqa_cloze.csv", delimiter='|')
+                self.dataset = pd.read_csv("triviaQA/no_overlap_cloze.csv", delimiter='|')
+                #self.dataset = pd.read_csv("recentQA/recentqa_cloze.csv", delimiter='|')
                 #self.dataset = pd.read_csv("recentQA/recentqa_qa.csv", delimiter=',')
         self.input_length = input_length
         self.tokenizer = tokenizer
@@ -47,7 +47,6 @@ class Finetune(Dataset):
         return data
 
     def clean_text(self, text):
-        print(text)
         text = text.replace('Example of text:', '')
         text = text.replace('Example of Summary:', '')
         text = text.replace('\n','')

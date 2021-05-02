@@ -1,7 +1,7 @@
 {
     "input_length" : 128,
     "output_length" : 128,
-    "num_train_epochs" : 5,
+    "num_train_epochs" : 8,
     "output_dir" : "outputs/t5_large_pretrain_rqa_ssm",
     "dataset" : "recentQA_context",
     "train_batch_size" : 4,
@@ -12,7 +12,7 @@
     "num_workers" : 8,
     "resume_from_checkpoint" : null,
     "accelerator" : "ddp",
-    "CUDA_VISIBLE_DEVICES" : "2",
+    "CUDA_VISIBLE_DEVICES" : "0",
     "wandb_log": false,
     "wandb_project": "closedbook-qa",
     "wandb_run_name" : "T5_large_pretrain_RQA",
