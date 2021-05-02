@@ -17,6 +17,8 @@ from torch import nn
 from transformers.file_utils import ModelOutput
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from transformers.generation_logits_process import LogitsProcessorList
+from transformers.modeling_outputs import Seq2SeqLMOutput
+
 
 import argparse
 import time
@@ -47,7 +49,7 @@ class T5FineTuner(pl.LightningModule):
     def __init__(self, hparams):
         super(T5FineTuner, self).__init__()
         self.hparams = hparams
-        self.module = T5ForConditionalGeneration.from_pretrained('t5-base')
+        self.module = T5ForConditionalGeneration.from_pretrained(hparams.model_name_or_path)
         self.model = T5ForConditionalGeneration.from_pretrained(hparams.model_name_or_path)
         self.criterion = nn.CrossEntropyLoss()
         self.softmax = nn.Softmax(2)
@@ -163,29 +165,135 @@ class T5FineTuner(pl.LightningModule):
 
     def is_logger(self):
         return self.trainer.global_rank <= 0
-    
-    def forward(self, input_ids, attention_mask=None, decoder_input_ids=None, decoder_attention_mask=None, lm_labels=None):
-        output1 = self.model(
-            input_ids,
+
+    def forward(
+            self,
+            input_ids=None,
+            attention_mask=None,
+            decoder_input_ids=None,
+            decoder_attention_mask=None,
+            head_mask=None,
+            decoder_head_mask=None,
+            encoder_outputs=None,
+            past_key_values=None,
+            inputs_embeds=None,
+            decoder_inputs_embeds=None,
+            labels=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
+            return_dict=None,
+            generate=None
+        ):
+        use_cache = use_cache if use_cache is not None else self.model.config.use_cache
+        return_dict = return_dict if return_dict is not None else self.model.config.use_return_dict
+
+        # FutureWarning: head_mask was separated into two input args - head_mask, decoder_head_mask
+        if head_mask is not None and decoder_head_mask is None:
+            if self.model.config.num_layers == self.model.config.num_decoder_layers:
+                warnings.warn(__HEAD_MASK_WARNING_MSG, FutureWarning)
+                decoder_head_mask = head_mask
+
+        # Convert encoder inputs in embeddings if needed
+        encoder_outputs = self.model.encoder(
+            input_ids=input_ids,
             attention_mask=attention_mask,
-            decoder_input_ids=decoder_input_ids,
-            decoder_attention_mask=decoder_attention_mask,
-            labels=lm_labels,
-            output_hidden_states=True
+            inputs_embeds=inputs_embeds,
+            head_mask=head_mask,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        encoder_outputs2 = self.module.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            inputs_embeds=inputs_embeds,
+            head_mask=head_mask,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
         )
 
-        output2 = self.module(
-            input_ids,
-            attention_mask=attention_mask,
-            decoder_input_ids=decoder_input_ids,
-            decoder_attention_mask=decoder_attention_mask,
-            labels=lm_labels,
-            output_hidden_states=True
+
+        hidden_states = encoder_outputs[0] + encoder_outputs2[0]
+
+        if self.model.model_parallel:
+            torch.cuda.set_device(self.model.decoder.first_device)
+
+        if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
+            # get decoder inputs from shifting lm labels to the right
+            decoder_input_ids = self.model._shift_right(labels)
+
+        # If decoding with past key value states, only the last tokens
+        # should be given as an input
+        if past_key_values is not None:
+            assert labels is None, "Decoder should not use cached key value states when training."
+            if decoder_input_ids is not None:
+                decoder_input_ids = decoder_input_ids[:, -1:]
+            if decoder_inputs_embeds is not None:
+                decoder_inputs_embeds = decoder_inputs_embeds[:, -1:]
+
+        # Set device for model parallelism
+        if self.model.model_parallel:
+            torch.cuda.set_device(self.model.decoder.first_device)
+            hidden_states = hidden_states.to(self.model.decoder.first_device)
+            if decoder_input_ids is not None:
+                decoder_input_ids = decoder_input_ids.to(self.model.decoder.first_device)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(self.model.decoder.first_device)
+            if decoder_attention_mask is not None:
+                decoder_attention_mask = decoder_attention_mask.to(self.model.decoder.first_device)
+
+        # Decode
+        decoder_outputs = self.model.decoder(
+            input_ids=decoder_input_ids,
+            attention_mask=decoder_attention_mask,
+            inputs_embeds=decoder_inputs_embeds,
+            past_key_values=past_key_values,
+            encoder_hidden_states=hidden_states,
+            encoder_attention_mask=attention_mask,
+            head_mask=decoder_head_mask,
+            encoder_head_mask=head_mask,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
         )
-        decoder_hidden_states = output1.decoder_hidden_states[-1] + output2.decoder_hidden_states[-1]
-        logits = self.model.lm_head(decoder_hidden_states)
-        loss = self.criterion(logits.permute(0,2,1),lm_labels)
-        return loss
+
+        sequence_output = decoder_outputs[0]
+
+        # Set device for model parallelism
+        if self.model.model_parallel:
+            torch.cuda.set_device(self.model.encoder.first_device)
+            self.model.lm_head = self.model.lm_head.to(self.model.encoder.first_device)
+            sequence_output = sequence_output.to(self.model.lm_head.weight.device)
+
+        if self.model.config.tie_word_embeddings:
+            # Rescale output before projecting on vocab
+            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
+            sequence_output = sequence_output * (self.model.model_dim ** -0.5)
+
+        lm_logits = self.model.lm_head(sequence_output)
+
+        loss = None
+        if labels is not None:
+            loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100)
+            loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
+            # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666
+        if generate:
+            return Seq2SeqLMOutput(
+                loss=loss,
+                logits=lm_logits,
+                past_key_values=decoder_outputs.past_key_values,
+                decoder_hidden_states=decoder_outputs.hidden_states,
+                decoder_attentions=decoder_outputs.attentions,
+                cross_attentions=decoder_outputs.cross_attentions,
+                encoder_last_hidden_state=encoder_outputs.last_hidden_state,
+                encoder_hidden_states=encoder_outputs.hidden_states,
+                encoder_attentions=encoder_outputs.attentions,
+                )
+        else:
+            return loss
 
     def _step(self, batch):
         lm_labels = batch["target_ids"]
@@ -193,7 +301,7 @@ class T5FineTuner(pl.LightningModule):
         outputs = self(
             input_ids=batch["source_ids"],
             attention_mask=batch["source_mask"],
-            lm_labels=lm_labels,
+            labels=lm_labels,
             decoder_attention_mask=batch['target_mask']
         )
         loss = outputs
@@ -347,6 +455,7 @@ class T5FineTuner(pl.LightningModule):
         # greedy search
         return self.greedy_search(
             input_ids,
+            encoder_input_ids=encoder_input_ids,
             logits_processor=logits_processor,
             max_length=max_length,
             pad_token_id=pad_token_id,
@@ -359,6 +468,7 @@ class T5FineTuner(pl.LightningModule):
     def greedy_search(
         self,
         input_ids: torch.LongTensor,
+        encoder_input_ids: torch.LongTensor,
         logits_processor: Optional[LogitsProcessorList] = None,
         max_length: Optional[int] = None,
         pad_token_id: Optional[int] = None,
@@ -369,7 +479,6 @@ class T5FineTuner(pl.LightningModule):
         return_dict_in_generate: Optional[bool] = None,
         **model_kwargs,
     ) -> Union[GreedySearchOutput, torch.LongTensor]:
-        
         # init values
         logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
         max_length = max_length if max_length is not None else self.model.config.max_length
@@ -402,26 +511,19 @@ class T5FineTuner(pl.LightningModule):
         sequence_lengths, unfinished_sequences, cur_len = self.model._init_sequence_length_for_generation(
             input_ids, max_length
         )
-
         while cur_len < max_length:
             # prepare model inputs
             model_inputs = self.model.prepare_inputs_for_generation(input_ids, **model_kwargs)
-
             # forward pass to get next token
-            outputs = self.model(
+            outputs = self.forward(
                 **model_inputs,
+                input_ids = encoder_input_ids,
                 return_dict=True,
                 output_attentions=output_attentions,
                 output_hidden_states=True,
+                generate=True
             )
-            outputs2 = self.module(
-                **model_inputs,
-                return_dict=True,
-                output_attentions=output_attentions,
-                output_hidden_states=True,
-            )
-            last_hidden = outputs.decoder_hidden_states[-1] + outputs2.decoder_hidden_states[-1]
-            next_token_logits = (self.model.lm_head(last_hidden)).squeeze(1)
+            next_token_logits = outputs.logits[:, -1, :]
 
             # Store scores, attentions and hidden_states when required
             if return_dict_in_generate:
@@ -507,9 +609,9 @@ class T5FineTuner(pl.LightningModule):
 
         preds = self.ids_to_clean_text(generated_ids)
         targets = self.ids_to_clean_text(batch["target_ids"])
-        for i in range(5):
-            print(f'TARGETS : {targets[i]}')
-            print(f'PREDICTIONS: {preds[i]}')
+        #for i in range(3):
+        #    print(f'TARGETS : {targets[i]}')
+        #    print(f'PREDICTIONS: {preds[i]}')
             
         gen_time = (time.time() - t0) / batch["source_ids"].shape[0]  
     
@@ -518,17 +620,17 @@ class T5FineTuner(pl.LightningModule):
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         summ_len = np.mean(self.lmap(len, generated_ids))
         em_score, subset_match_score = self.calculate_scores(preds, targets)
-        bleu_score = self.bleu(preds,targets)
+        #bleu_score = self.bleu(preds,targets)
         self.em_score_list.append(em_score)
         self.subset_score_list.append(subset_match_score)
         
         em_score = torch.tensor(em_score,dtype=torch.float32)
         subset_match_score = torch.tensor(subset_match_score,dtype=torch.float32)
-        bleu_score = torch.tensor(bleu_score,dtype=torch.float32)
+        #bleu_score = torch.tensor(bleu_score,dtype=torch.float32)
         
         self.log('em_score', em_score, prog_bar=True, logger=True)
         self.log('subset_match_score', subset_match_score, prog_bar=True, logger=True)
-        self.log('bleu_score', bleu_score, prog_bar=True, logger=True)
+        #self.log('bleu_score', bleu_score, prog_bar=True, logger=True)
     
 
     def training_step(self, batch, batch_idx):
