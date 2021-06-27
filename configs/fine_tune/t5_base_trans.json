@@ -1,0 +1,23 @@
+{
+    "input_length" : 50,
+    "output_length" : 50,
+    "num_train_epochs" : 5,
+    "output_dir" : "outputs/t5_base_trans",
+    "dataset" : "triviaQA",
+    "train_batch_size" : 196,
+    "learning_rate" : 1e-3,
+    "model" : "t5-base",
+    "gradient_accumulation_steps" : 1,
+    "ngpu" : 1,
+    "num_workers" : 8,
+    "resume_from_checkpoint" : null,
+    "accelerator" : "ddp",
+    "CUDA_VISIBLE_DEVICES" : "0",
+    "wandb_log": false,
+    "wandb_project": "closedbook-qa",
+    "wandb_run_name" : "T5_base_trans",
+    "mode" : "finetune",
+    "valid_on_recentQA" : false,
+    "check_validation" : true,
+    "checkpoint_path" : ""
+}

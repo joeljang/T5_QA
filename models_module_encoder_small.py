@@ -3,6 +3,7 @@ from transformers import (
     AdamW,
     Adafactor,
     T5ForConditionalGeneration,
+    T5EncoderModel,
     T5Model,
     T5Tokenizer,
     T5Config,
@@ -49,19 +50,17 @@ class T5FineTuner(pl.LightningModule):
     def __init__(self, hparams):
         super(T5FineTuner, self).__init__()
         self.hparams = hparams
-        self.module = T5ForConditionalGeneration.from_pretrained(hparams.model_name_or_path)
         self.model = T5ForConditionalGeneration.from_pretrained(hparams.model_name_or_path)
+        self.module = T5EncoderModel.from_pretrained('google/t5-small-ssm')
+        self.projection = nn.Linear(512, 1024)
         self.criterion = nn.CrossEntropyLoss()
         self.softmax = nn.Softmax(2)
         self.tokenizer = T5Tokenizer.from_pretrained(hparams.tokenizer_name_or_path)
         
         if self.hparams.freeze_embeds:
             self.freeze_embeds()
-        if self.hparams.freeze_encoder:
-            self.freeze_params(self.model.get_encoder())
-            assert_all_frozen(self.model.get_encoder())
-        self.freeze_params(self.module) #Freezing Model
-
+        self.freeze_params(self.model.get_encoder())
+        
         self.step_count = 0
         self.output_dir = self.hparams.output_dir
             
@@ -214,12 +213,7 @@ class T5FineTuner(pl.LightningModule):
             return_dict=return_dict,
         )
 
-
-
-        hidden_states = encoder_outputs[0] + encoder_outputs2[0]
-        
-        print(hidden_states.shape)
-        exit()
+        hidden_states = encoder_outputs[0] + self.projection(encoder_outputs2[0])
 
         if self.model.model_parallel:
             torch.cuda.set_device(self.model.decoder.first_device)
@@ -603,7 +597,6 @@ class T5FineTuner(pl.LightningModule):
     def _generative_step(self, batch, batch_idx):
         
         val_num = batch_idx * len(batch["source_ids"]) * self.hparams.n_gpu #For 2 val logs
-
         t0 = time.time()
         
         generated_ids = self.generate(

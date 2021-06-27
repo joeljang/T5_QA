@@ -6,7 +6,6 @@ import math
 from transformers import pipeline
 import os
 import random
-os.environ['TRANSFORMERS_CACHE'] = '/mnt/joel/'
 
 from nlp import load_dataset
 import pprint
@@ -15,22 +14,28 @@ class Finetune(Dataset):
     def __init__(self, tokenizer, type_path, num_samples, input_length, output_length, args, print_text=False):         
         self.name = args.dataset
         self.args = args
+        self.tokenizer = tokenizer
         if args.valid_on_recentQA:     
             if type_path=='validation':
                 #self.dataset = pd.read_csv("triviaQA/no_overlap_cloze.csv", delimiter='|')
                 self.dataset = pd.read_csv("recentQA/recentqa_cloze.csv", delimiter='|')
         else:
             if self.name == 'triviaQA':
-                self.dataset = load_dataset('trivia_qa', 'unfiltered.nocontext', split=type_path, cache_dir='/mnt/joel/datasets')
+                self.dataset = load_dataset('trivia_qa', 'unfiltered.nocontext', split=type_path)
+                #self.dataset = load_dataset('trivia_qa', 'rc', split=type_path)
             elif self.name == 'naturalQA':
                 if type_path == 'train':
                     self.dataset = self.get_dataset('NQ/nq_train.json')
                 else:
                     self.dataset = self.get_dataset('NQ/nq_dev.json')
+            elif self.name == 'triviaQA_cloze':
+                #self.dataset = pd.read_csv("triviaQA/triviaQA_cloze.csv")
+                self.dataset = pd.read_csv("triviaQA/cloze.csv")
+            elif self.name == 'recentnews':
+                self.dataset = pd.read_csv("recentnews/recent_news_summary.csv")
             else:
                 raise NameError('Name a correct dataset!')
         self.input_length = input_length
-        self.tokenizer = tokenizer
         self.output_length = output_length
         self.print_text = print_text
         self.type_path = type_path
@@ -50,18 +55,29 @@ class Finetune(Dataset):
         return data
 
     def clean_text(self, text):
-        text = text.replace('Example of text:', '')
-        text = text.replace('Example of Summary:', '')
-        text = text.replace('\n','')
-        text = text.replace('``', '')
-        text = text.replace('"', '')
+        if type(text)==str:
+            text = text.replace('Example of text:', '')
+            text = text.replace('Example of Summary:', '')
+            text = text.replace('\n','')
+            text = text.replace('``', '')
+            text = text.replace('"', '')
+        else:
+            return ''
         return text
     
     def convert_to_features(self, example_batch):
         # Tokenize contexts and questions (as pairs of inputs)
         if self.print_text:
             print("Input Text: ", self.clean_text(example_batch['question']))
-        input_ = self.clean_text(example_batch['question'])
+        #pprint.pprint(example_batch)
+        #print(example_batch['entity_pages']['wiki_context'])
+        #print(example_batch['search_results'])
+        if self.name == 'triviaQA_cloze':
+            input_ = self.clean_text(example_batch['cloze'])
+        elif self.name == 'recentnews':
+            input_ = self.clean_text(example_batch['input'])
+        else:
+            input_ = self.clean_text(example_batch['question'])
         if self.type_path=='validation' and self.args.valid_on_recentQA:
             target_ = self.clean_text(example_batch['answer'])
         else:
@@ -69,6 +85,10 @@ class Finetune(Dataset):
                 target_ = self.clean_text(example_batch['answer']['value'])
             elif self.name =='naturalQA':
                 target_ = self.clean_text(example_batch['answer'][0])
+            elif self.name == 'triviaQA_cloze':
+                target_ = self.clean_text(example_batch['answer'])
+            elif self.name == 'recentnews':
+                target_ = self.clean_text(example_batch['output'])
         source = self.tokenizer.batch_encode_plus([input_], max_length=self.input_length, 
                                                      padding='max_length', truncation=True, return_tensors="pt")
         targets = self.tokenizer.batch_encode_plus([target_], max_length=self.output_length, 
@@ -82,7 +102,7 @@ class Finetune(Dataset):
             else:
                 source, targets = self.convert_to_features(self.dataset[index])
         else:
-            source, targets = self.convert_to_features(self.dataset[index])
+            source, targets = self.convert_to_features(self.dataset.iloc[index])
         
         source_ids = source["input_ids"].squeeze()
         target_ids = targets["input_ids"].squeeze()
@@ -95,6 +115,8 @@ class Finetune(Dataset):
 class Pretrain(Dataset):
     def __init__(self, tokenizer, type_path, num_samples, input_length, output_length, args, print_text=False):
         self.args = args
+        self.tokenizer = tokenizer
+        self.type_path = type_path
         if 'ssm' in self.args.output_dir:
             self.ssm = True
             self.nlp = pipeline("ner")
@@ -104,16 +126,73 @@ class Pretrain(Dataset):
             self.dataset = self.split_into_segment(pd.read_csv("recentQA/recentqa_context.csv", delimiter='\t'),input_length)
         elif self.args.dataset == 'triviaQA_context':
             self.dataset = pd.read_csv("/triviaQA/context_preprocessed.csv", delimiter=',')
+        elif self.args.dataset == 'trans':
+            if type_path=='train':
+                self.dataset = self.get_trans_dataset("UnsupervisedQAData/unsupervised_qa_train.json")
+            else:
+                self.dataset = self.get_trans_dataset("UnsupervisedQAData/unsupervised_qa_dev.json")
+        elif self.args.dataset == 'recentnews':
+            if type_path=='train':
+                self.dataset = pd.read_csv('recentnews/recent_news_20000.csv')
+            else:
+                #self.dataset =  pd.read_csv('recentnews/recent_news_summary_6000.csv')
+                self.dataset = self.get_recent_val(-1,-1)
         else:
             raise NameError('Select the correct Dataset!')
-        self.input_length = input_length
-        self.tokenizer = tokenizer
-        self.output_length = output_length
+        print(f'length of dataset: {len(self.dataset)}')
+        if self.args.dataset == 'recentnews' and type_path=='validation':
+            self.input_length = 50
+            self.output_length = 4
+        else:
+            self.input_length = input_length
+            self.output_length = output_length
         self.print_text = print_text
         sentinels=[]
         for i in range(100):
             sentinels.append(f'<extra_id_{i}>')
         self.sentinels = sentinels
+        
+    def get_recent_val(self, lama_num, recent_num):
+        lama = pd.read_csv('recentnews/lama_template.csv')
+        lama_len = len(lama)
+        lama_interval = int(lama_len / lama_num)
+        recent = pd.read_csv('recentnews/recent_news_summary_6000.csv')
+        recent_len = len(recent)
+        recent_interval = int(recent_len/recent_num)
+        dataset = []
+
+        for index, row in lama.iterrows():
+            dataset.append(row)
+        
+        for index, row in recent.iterrows():
+            dataset.append(row)
+     
+        return dataset
+
+    def get_trans_dataset(self, file_path):
+        with open(file_path) as f:
+            data = json.load(f)
+        dataset = []
+        q_ = []
+        s_ = []
+        for entry in data['data']:
+            context = entry['paragraphs'][0]['context']
+            qas = entry['paragraphs'][0]['qas']
+            for q in qas:
+                row = []
+                ans_start = q['answers'][0]['answer_start']
+                ans_text = q['answers'][0]['text']
+                ans_length = len(ans_text)
+                question = q['question']
+                row.append(question)
+                context_ = context[:ans_start] + "<extra_id_0>" + context[ans_start+ans_length:]
+                contexts = context_.split('.')
+                for c in contexts:
+                    if '<extra_id_0>' in c:
+                        row.append(c)
+                        row.append(ans_text)
+                dataset.append(row)
+        return dataset
   
     def split_into_segment(self, ds, input_length):
         new_rows = []
@@ -264,16 +343,27 @@ class Pretrain(Dataset):
 
     def convert_to_features(self, example_batch):
         # Tokenize contexts and questions (as pairs of inputs)
-        
         if self.print_text:
             print("Input Text: ", self.clean_text(example_batch['context']))
-        text = self.clean_text(example_batch['context'])
-        if self.ssm:
-            mask = self.salient_span_corruption_mask(text)
+        if self.args.dataset == 'trans':
+            input_ = example_batch[0]
+            target_ = example_batch[1]
+        elif self.args.dataset == 'recentnews':
+            input_ = example_batch['input']
+            target_ = example_batch['output']
+            if type(target_)!=str:
+                target_=''
         else:
-            mask = self.span_corruption_mask(text)
-        input_ = self.noise_span_to_unique_sentinel(text,mask)
-        target_ = self.nonnoise_span_to_unique_sentinel(text,mask)
+            if self.args.dataset == 'cc_news':
+                text = self.clean_text(example_batch['text'])
+            else:
+                text = self.clean_text(example_batch['context'])
+            if self.ssm:
+                mask = self.salient_span_corruption_mask(text)
+            else:
+                mask = self.span_corruption_mask(text)
+            input_ = self.noise_span_to_unique_sentinel(text,mask)
+            target_ = self.nonnoise_span_to_unique_sentinel(text,mask)
         source = self.tokenizer.batch_encode_plus([input_], max_length=self.input_length, 
                                                      padding='max_length', truncation=True, return_tensors="pt")
         targets = self.tokenizer.batch_encode_plus([target_], max_length=self.output_length, 
@@ -281,7 +371,14 @@ class Pretrain(Dataset):
         return source, targets
   
     def __getitem__(self, index):
-        source, targets = self.convert_to_features(self.dataset.iloc[index])
+        if self.args.dataset == 'trans':
+            source, targets = self.convert_to_features(self.dataset[index])
+        else:
+            if self.type_path=='train':
+                source, targets = self.convert_to_features(self.dataset.iloc[index])
+            else:
+                source, targets = self.convert_to_features(self.dataset[index])
+                #source, targets, index_ = self.convert_to_features(self.dataset.iloc[index])
         
         source_ids = source["input_ids"].squeeze()
         target_ids = targets["input_ids"].squeeze()
@@ -309,32 +406,35 @@ class Probe(Dataset):
         self.input_length = input_length
         self.tokenizer = tokenizer
         self.output_length = output_length
-        self.dataset, self.entity_relation = self.getdataset(*parameters) 
+        self.dataset, self.entity_relation = self.getdataset(type_path, *parameters) 
         
     def __len__(self):
         return len(self.dataset)
     
-    def getdataset(self, relations, data_path_pre, data_path_post):
-        full_dataset = []
+    def getdataset(self, type_path, relations, data_path_pre, data_path_post):
+        test_dataset = []
+        train_dataset = []
         total_cnt=0
         string_match_cnt=0
         non_entity_cnt=0
         entity_lst = pd.read_csv('lama/entity_list.csv')
         entity_lst = list(entity_lst['entity'])
         entity_relation = {}
+        relation_info = {}
+        total_num=0
         for relation in relations:
             dataset_filename = "{}{}{}".format(data_path_pre, relation["relation"], data_path_post)
             try:
                 all_samples = self.load_file(dataset_filename)
             except Exception as e:
                 continue
-            
+            relation_info[relation['template']]=0
             if relation['template'] and relation['template'] != "":
                 facts = []
                 for sample in all_samples:
-                    total_cnt+=1
                     sub = sample["sub_label"]
                     obj = sample["obj_label"]
+                    
                     # Excluding samples with string match filter just like E-BERT
                     if obj in sub:
                         string_match_cnt+=1
@@ -343,36 +443,51 @@ class Probe(Dataset):
                     if not (obj in entity_lst):
                         non_entity_cnt+=1
                         continue 
+
                     #Saving information for n to m relations
                     if sub not in entity_relation:
                         entity_relation[sub] = [obj]
                     elif obj not in entity_relation[sub]:
                         entity_relation[sub].append(obj)
+                        
                     if (sub, obj) not in facts:
                         facts.append((sub, obj))
                 all_samples = []
+                train_samples = []
                 for fact in facts:
+                    total_cnt+=1
+                    relation_info[relation['template']]+=1
                     (sub, obj) = fact
                     sample = {}
                     sample["sub_label"] = sub
                     sample["obj_label"] = obj
-                    # sobstitute all sentences with a standard template
+                    # substitute all sentences with a standard template
                     sample["masked_sentences"] = self.parse_template(
                         relation['template'].strip(), sample["sub_label"].strip(), "[MASK]"
                     )
-                    all_samples.append(sample)
-            
-            full_dataset = full_dataset + all_samples
+                    #Saving 5% for training LAMA
+                    if total_cnt%100==0:
+                        train_samples.append(sample)
+                    else:
+                        all_samples.append(sample)
+            test_dataset = test_dataset + all_samples
+            train_dataset = train_dataset + train_samples
+
+        print(relation_info)
 
         with open('entity_relation.json', 'w', encoding='utf-16') as fp:
             json.dump(entity_relation, fp)
 
         print('Number of object string match to subject: ', string_match_cnt)
         print('Number of object that are non entities: ', non_entity_cnt)
-        print('Length of the modified dataset is :',len(full_dataset))
-        random.shuffle(full_dataset)
-        
-        return full_dataset, entity_relation
+        print('Length of the modiefied train dataset is : ',len(train_dataset))
+        print('Length of the modified dataset is : ',len(test_dataset))
+        random.shuffle(test_dataset)
+        random.shuffle(train_dataset)
+        if type_path=='validation':
+            return test_dataset, entity_relation
+        else:
+            return train_dataset, entity_relation
 
     def parse_template(self, template, subject_label, object_label):
         SUBJ_SYMBOL = "[X]"
